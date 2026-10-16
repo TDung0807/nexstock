@@ -1,6 +1,7 @@
 import {
   ForbiddenException,
   Injectable,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService, type JwtSignOptions } from '@nestjs/jwt';
@@ -12,7 +13,11 @@ import {
 import { promisify } from 'node:util';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { UserModel } from '../generated/prisma/models/User.js';
-import type { AuthTokens, JwtPayload } from './types/jwt-payload.js';
+import type {
+  AuthTokens,
+  JwtPayload,
+  VerifiedUser,
+} from './types/jwt-payload.js';
 
 const scrypt = promisify(scryptCallback);
 
@@ -83,6 +88,7 @@ export class AuthService {
     const tokens = await this.issueTokens({
       sub: user.id,
       email: user.email,
+      role: user.role,
     });
     await this.storeRefreshToken(user.id, tokens.refreshToken);
     return tokens;
@@ -93,6 +99,38 @@ export class AuthService {
       where: { id: userId },
       data: { refreshTokenHash: null },
     });
+  }
+
+  // Centralized verification used by other services: checks the token
+  // signature/expiry and that the user still exists and is active.
+  async verifyAccessToken(token: string): Promise<VerifiedUser> {
+    let payload: JwtPayload;
+    try {
+      payload = await this.jwtService.verifyAsync<JwtPayload>(token, {
+        secret: this.configService.getOrThrow<string>('JWT_ACCESS_SECRET'),
+      });
+    } catch {
+      throw new UnauthorizedException('Invalid or expired token');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: payload.sub },
+      select: { id: true, email: true, role: true, status: true },
+    });
+    if (!user) {
+      throw new UnauthorizedException('User no longer exists');
+    }
+    if (user.status !== 'ACTIVE') {
+      throw new UnauthorizedException('User is not active');
+    }
+
+    return {
+      valid: true,
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+      status: user.status,
+    };
   }
 
   private async issueTokens(payload: JwtPayload): Promise<AuthTokens> {

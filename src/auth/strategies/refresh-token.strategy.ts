@@ -28,6 +28,6 @@ export class RefreshTokenStrategy extends PassportStrategy(
     if (!refreshToken) {
       throw new UnauthorizedException('Refresh token malformed');
     }
-    return { sub: payload.sub, email: payload.email, refreshToken };
+    return { sub: payload.sub, email: payload.email, role: payload.role, refreshToken };
   }
 }

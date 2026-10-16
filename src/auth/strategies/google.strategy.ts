@@ -66,6 +66,6 @@ export class GoogleStrategy extends PassportStrategy(
       fullName: payload.name ?? null,
     });
 
-    return { sub: user.id, email: user.email };
+    return { sub: user.id, email: user.email, role: user.role };
   }
 }
